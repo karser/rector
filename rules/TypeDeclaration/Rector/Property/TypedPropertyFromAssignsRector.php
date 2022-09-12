@@ -6,7 +6,9 @@ namespace Rector\TypeDeclaration\Rector\Property;
 use PhpParser\Node;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Stmt\Property;
+use PHPStan\Type\IntersectionType;
 use PHPStan\Type\MixedType;
+use PHPStan\Type\NullType;
 use PHPStan\Type\Type;
 use PHPStan\Type\TypeCombinator;
 use PHPStan\Type\UnionType;
@@ -14,6 +16,7 @@ use Rector\BetterPhpDocParser\PhpDocManipulator\PhpDocTypeChanger;
 use Rector\Core\Contract\Rector\AllowEmptyConfigurableRectorInterface;
 use Rector\Core\Php\PhpVersionProvider;
 use Rector\Core\Rector\AbstractRector;
+use Rector\Core\ValueObject\PhpVersion;
 use Rector\Core\ValueObject\PhpVersionFeature;
 use Rector\DeadCode\PhpDoc\TagRemover\VarTagRemover;
 use Rector\Php74\Guard\MakePropertyTypedGuard;
@@ -132,6 +135,12 @@ CODE_SAMPLE
         }
         if ($inferredType instanceof MixedType) {
             return null;
+        }
+        if ($inferredType instanceof UnionType && $this->phpVersionProvider->provide() < PhpVersion::PHP_82) {
+            $keys = array_map(static fn ($type) => get_class($type), $inferredType->getTypes());
+            if (in_array(IntersectionType::class, $keys, true) && in_array(NullType::class, $keys, true)) {
+                return null;
+            }
         }
         $inferredType = $this->decorateTypeWithNullableIfDefaultPropertyNull($node, $inferredType);
         $phpDocInfo = $this->phpDocInfoFactory->createFromNodeOrEmpty($node);

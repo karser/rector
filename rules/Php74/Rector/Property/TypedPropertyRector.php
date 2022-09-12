@@ -10,11 +10,16 @@ use PhpParser\Node\NullableType;
 use PhpParser\Node\Stmt\ClassLike;
 use PhpParser\Node\Stmt\Property;
 use PHPStan\Analyser\Scope;
+use PHPStan\Type\IntersectionType;
 use PHPStan\Type\MixedType;
+use PHPStan\Type\NullType;
 use PHPStan\Type\Type;
 use PHPStan\Type\TypeCombinator;
+use PHPStan\Type\UnionType;
 use Rector\Core\Contract\Rector\AllowEmptyConfigurableRectorInterface;
+use Rector\Core\Php\PhpVersionProvider;
 use Rector\Core\Rector\AbstractScopeAwareRector;
+use Rector\Core\ValueObject\PhpVersion;
 use Rector\Core\ValueObject\PhpVersionFeature;
 use Rector\DeadCode\PhpDoc\TagRemover\VarTagRemover;
 use Rector\FamilyTree\Reflection\FamilyRelationsAnalyzer;
@@ -85,7 +90,12 @@ final class TypedPropertyRector extends AbstractScopeAwareRector implements Allo
      * @var \Rector\TypeDeclaration\AlreadyAssignDetector\ConstructorAssignDetector
      */
     private $constructorAssignDetector;
-    public function __construct(VarDocPropertyTypeInferer $varDocPropertyTypeInferer, VendorLockResolver $vendorLockResolver, VarTagRemover $varTagRemover, FamilyRelationsAnalyzer $familyRelationsAnalyzer, ObjectTypeAnalyzer $objectTypeAnalyzer, MakePropertyTypedGuard $makePropertyTypedGuard, ConstructorAssignDetector $constructorAssignDetector)
+    /**
+     * @readonly
+     * @var \Rector\Core\Php\PhpVersionProvider
+     */
+    private $phpVersionProvider;
+    public function __construct(VarDocPropertyTypeInferer $varDocPropertyTypeInferer, VendorLockResolver $vendorLockResolver, VarTagRemover $varTagRemover, FamilyRelationsAnalyzer $familyRelationsAnalyzer, ObjectTypeAnalyzer $objectTypeAnalyzer, MakePropertyTypedGuard $makePropertyTypedGuard, ConstructorAssignDetector $constructorAssignDetector, PhpVersionProvider $phpVersionProvider)
     {
         $this->varDocPropertyTypeInferer = $varDocPropertyTypeInferer;
         $this->vendorLockResolver = $vendorLockResolver;
@@ -94,6 +104,7 @@ final class TypedPropertyRector extends AbstractScopeAwareRector implements Allo
         $this->objectTypeAnalyzer = $objectTypeAnalyzer;
         $this->makePropertyTypedGuard = $makePropertyTypedGuard;
         $this->constructorAssignDetector = $constructorAssignDetector;
+        $this->phpVersionProvider = $phpVersionProvider;
     }
     public function configure(array $configuration) : void
     {
@@ -140,6 +151,12 @@ CODE_SAMPLE
         $resolvedPropertyType = $this->varDocPropertyTypeInferer->inferProperty($node);
         if ($resolvedPropertyType instanceof MixedType) {
             return null;
+        }
+        if ($resolvedPropertyType instanceof UnionType && $this->phpVersionProvider->provide() < PhpVersion::PHP_82) {
+            $keys = array_map(static fn ($type) => get_class($type), $resolvedPropertyType->getTypes());
+            if (in_array(IntersectionType::class, $keys, true) && in_array(NullType::class, $keys, true)) {
+                return null;
+            }
         }
         if ($this->objectTypeAnalyzer->isSpecial($resolvedPropertyType)) {
             return null;
